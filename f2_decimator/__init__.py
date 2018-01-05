@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 04.01.2018 15:22
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 05.01.2018 13:22
 import sys
 import os
 import numpy as np
@@ -14,6 +14,7 @@ if not (os.path.abspath('../../thesdk') in sys.path):
 from thesdk import *
 from refptr import *
 from rtl import *
+from halfband import *
 
 #Simple buffer template
 class f2_decimator(rtl,thesdk):
@@ -108,30 +109,20 @@ class f2_decimator(rtl,thesdk):
           os.remove(self._infile)
           os.remove(self._outfile)
 
-    def firhalfband(self,**kwargs):
-       n=kwargs.get('n',32)
-       if np.remainder(n,2) > 0:
-           self.print_log({'type':'F', 'msg':'Number of coefficients must be even'})
-       bandwidth=kwargs.get('bandwidth',0.45) # Fs=1
-       desired=np.array([ 1, 0] )
-       bands=np.array([0, bandwidth, 0.499,0.5])
-       coeffs=sig.remez(n, bands, desired, Hz=1)
-       hb=np.zeros((2*n-1,1))
-       hb[0::2,0]=coeffs
-       hb[n-1,0]=1
-       return hb
-    
     def generate_halfbands(self,**kwargs):
        bandwidth=kwargs.get('bandwidth',0.45)
        n=kwargs.get('n',np.array([6,8,40]))
-       hb1=self.firhalfband(**{'n':n[0], 'bandwidth':bandwidth/4})
-       hb2=self.firhalfband(**{'n':n[1], 'bandwidth':bandwidth/2})
-       hb3=self.firhalfband(**{'n':n[2], 'bandwidth':bandwidth})
-       return hb1, hb2, hb3
+       H=[]
+       for i in range(3):
+           h=halfband()
+           h.halfband_Bandwidth=bandwidth/(2**(2-i))
+           h.halfband_N=n[i]
+           h.init()
+           H.append(h)
+       return H[0].H, H[2].H, H[2].H
 
 if __name__=="__main__":
     import matplotlib.pyplot as plt
-    from  f2_decimator import *
     d=f2_decimator()
     hb1, hb2, hb3 =d.generate_halfbands(**{'n':np.array([6,8,40]), 'bandwidth':0.45})
     impulse=np.r_['0', hb1, np.zeros((1024-hb1.shape[0],1))]
@@ -143,17 +134,19 @@ if __name__=="__main__":
     
     w=np.arange(1024)/1024
     spe1=np.fft.fft(impulse,axis=0)
+    f=plt.figure(1)
     plt.plot(w,20*np.log10(np.abs(spe1)/np.amax(np.abs(spe1))))
     plt.ylim((-80,3))
     plt.grid(True)
-    plt.show()
+    f.show()
 
     nbits=16
     spe3=np.fft.fft(np.round(impulse*(2**(nbits-1)-1)),axis=0)
+    g=plt.figure(2)
     plt.plot(w,20*np.log10(np.abs(spe3)/np.amax(np.abs(spe3))))
     plt.ylim((-80,3))
     plt.grid(True)
-    plt.show()
+    g.show()
     filts=[hb1, hb2, hb3]
     for i in range(len(filts)):
         tapfile=os.path.dirname(os.path.realpath(__file__)) +"/hb"+str(i+1)+".txt"
@@ -168,5 +161,7 @@ if __name__=="__main__":
 
         #np.savetxt(fid,filts[i],fmt='%.32f')
         fid.close()
+    #Required to keep the figures open
+    input()
 
 
