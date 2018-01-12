@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 05.01.2018 13:22
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 11.01.2018 18:21
 import sys
 import os
 import numpy as np
@@ -118,6 +118,7 @@ class f2_decimator(rtl,thesdk):
            h.halfband_Bandwidth=bandwidth/(2**(2-i))
            h.halfband_N=n[i]
            h.init()
+           h.export_scala()
            H.append(h)
        return H[0].H, H[2].H, H[2].H
 
