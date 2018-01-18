@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 16.01.2018 12:02
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 17.01.2018 17:06
 import sys
 import os
 import numpy as np
@@ -26,6 +26,7 @@ class f2_decimator(verilog,thesdk):
         self.BB_bandwidth=0.45
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
+        self.scales=[1,1,1,1]
         self._filters = [];
         self._Z = refptr();
         self._classfile=os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
@@ -37,12 +38,15 @@ class f2_decimator(verilog,thesdk):
 
     def init(self):
         self.def_verilog()
-        #self._vlogparameters=dict([ ('g_rs',self.Rs_high), ('g_Rs_slow',self.cic3Rs_high_slow), ('g_integscale',self.integscale) ])
+        self._vlogparameters=dict([ ('g_Rs_high',self.Rs_high), ('g_Rs_low',self.Rs_low), 
+            ('g_scale0',self.scales[0]),  
+            ('g_scale1',self.scales[1]),  
+            ('g_scale2',self.scales[2]),  
+            ('g_scale3',self.scales[3])])
 
     def main(self):
+        self.generate_decimator()
         if self.model=='py':
-            print('Generating')
-            self.generate_decimator()
             for i in self._filters:
                 print('In main')
                 i.run()
@@ -68,6 +72,7 @@ class f2_decimator(verilog,thesdk):
           self.write_infile()
           self.run_verilog()
           self.read_outfile()
+          print('jeesjees')
 
     def generate_decimator(self,**kwargs):
        n=kwargs.get('n',np.array([6,8,40]))
@@ -129,19 +134,22 @@ class f2_decimator(verilog,thesdk):
         os.remove(self._outfile)
 
 if __name__=="__main__":
+    import sys
     import matplotlib.pyplot as plt
     from f2_decimator import *
     from  f2_signal_gen import *
     from  f2_system import *
+    arguments=sys.argv[1:]
     t=thesdk()
     fsorig=20e6
     highrate=16*8*fsorig
     bw=0.45
-    integscale=4096
     siggen=f2_signal_gen()
-    fsindexes=range(1,int(highrate/fsorig))
+    #fsindexes=range(1,int(highrate/fsorig))
+    fsindexes=range(1,3)
     print(list(fsindexes))
     freqlist=[1.0e6, 0.45*fsorig]
+    #_=[freqlist.extend([i*fsorig-bw*fsorig, i*fsorig+bw*fsorig]) for i in list(fsindexes) ] 
     _=[freqlist.extend([i*fsorig-bw*fsorig, i*fsorig+bw*fsorig]) for i in list(fsindexes) ] 
     print(freqlist)
     siggen.Rs=highrate
@@ -149,8 +157,8 @@ if __name__=="__main__":
     siggen.Users=1
     siggen.Txantennas=1
     siggen.init()
-    #Mimic ADC This is very ideal to verify frequanyuresponses
-    bits=20
+    #Mimic ADC This is very ideal to verify frequencyuresponses
+    bits=10
     insig=siggen._Z.Value[0,:,0].reshape(-1,1)
     insig=np.round(insig/np.amax([np.abs(np.real(insig)), np.abs(np.imag(insig))])*(2**(bits-1)-1))
     str="Input signal range is %i" %((2**(bits-1)-1))
@@ -158,48 +166,79 @@ if __name__=="__main__":
     h=f2_decimator()
     h.Rs_high=highrate
     h.Rs_low=fsorig
-    h.integscale=integscale 
+    integscale=np.cumsum(np.cumsum(np.cumsum(np.ones((np.round(h.Rs_high/(8*h.Rs_low)).astype(int),1))*2**(bits-1))))[-1]
+    #integscale=2**(32-1-np.ceil(np.log2(integscale)))
+    integscale=128
+    print(integscale)
+    h.scales=[integscale,1,1,1] 
     h.iptr_A.Value=insig.reshape((-1,1))
-    h.model='py'
+    if len(arguments) >0:
+        #h.model='\'%s\'' %(arguments[0])
+        h.model='sv'
+        print(h.model)
+    else:
+        h.model='py'
     h.init()
-    print('Start running')
     h.run() 
 
+    if h.model=='py':
+        for filtno in range(len(h._filters)):
+            impulse=np.r_['0', h._filters[filtno].H, np.zeros((1024-h._filters[filtno].H.shape[0],1))]
+            w=np.arange(1024)/1024*h._filters[filtno].Rs_high
+            spe1=np.fft.fft(impulse,axis=0)
+            f=plt.figure(3*filtno+1)
+            plt.plot(w,20*np.log10(np.abs(spe1)/np.amax(np.abs(spe1))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            f.show()
 
-    for filtno in range(len(h._filters)):
-        impulse=np.r_['0', h._filters[filtno].H, np.zeros((1024-h._filters[filtno].H.shape[0],1))]
-        w=np.arange(1024)/1024*h._filters[filtno].Rs_high
-        spe1=np.fft.fft(impulse,axis=0)
-        f=plt.figure(3*filtno+1)
-        plt.plot(w,20*np.log10(np.abs(spe1)/np.amax(np.abs(spe1))))
-        plt.ylim((-80,3))
-        plt.grid(True)
-        f.show()
+            fs, spe2=sig.welch(h._filters[filtno].iptr_A.Value,fs=h._filters[filtno].Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            #w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].cic3Rs_slow
+            print(h._filters[filtno].Rs_high)
+            w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].Rs_high
+            ff=plt.figure(3*filtno+2)
+            plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            ff.show()
+            
+            #spe3=np.fft.fft(h._Z.Value,axis=0)
+            maximum=np.amax([np.abs(np.real(h._filters[filtno]._Z.Value)), np.abs(np.imag(h._filters[filtno]._Z.Value))])
+            str="Output signal range is %i" %(maximum)
+            t.print_log({'type':'I', 'msg': str})
+            fs, spe3=sig.welch(h._filters[filtno]._Z.Value,fs=h._filters[filtno].Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            #w=np.arange(spe3.shape[0])/spe3.shape[0]*h._filters[filtno].cic3Rs_slow
+            print(h._filters[filtno].Rs_low)
+            w=np.arange(spe3.shape[0])/spe3.shape[0]*h._filters[filtno].Rs_low
+            fff=plt.figure(3*filtno+3)
+            plt.plot(w,10*np.log10(np.abs(spe3)/np.amax(np.abs(spe3))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            fff.show()
 
-        fs, spe2=sig.welch(h._filters[filtno].iptr_A.Value,fs=h._filters[filtno].Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
-        #w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].cic3Rs_slow
-        print(h._filters[filtno].Rs_high)
-        w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].Rs_high
-        ff=plt.figure(3*filtno+2)
-        plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
-        plt.ylim((-80,3))
-        plt.grid(True)
-        ff.show()
-        
-        #spe3=np.fft.fft(h._Z.Value,axis=0)
-        maximum=np.amax([np.abs(np.real(h._filters[filtno]._Z.Value)), np.abs(np.imag(h._filters[filtno]._Z.Value))])
-        str="Output signal range is %i" %(maximum)
-        t.print_log({'type':'I', 'msg': str})
-        fs, spe3=sig.welch(h._filters[filtno]._Z.Value,fs=h._filters[filtno].Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
-        #w=np.arange(spe3.shape[0])/spe3.shape[0]*h._filters[filtno].cic3Rs_slow
-        print(h._filters[filtno].Rs_low)
-        w=np.arange(spe3.shape[0])/spe3.shape[0]*h._filters[filtno].Rs_low
-        fff=plt.figure(3*filtno+3)
-        plt.plot(w,10*np.log10(np.abs(spe3)/np.amax(np.abs(spe3))))
-        plt.ylim((-80,3))
-        plt.grid(True)
-        fff.show()
+            #Required to keep the figures open
+    else:
+            fs, spe2=sig.welch(h.iptr_A.Value,fs=h.Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            #w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].cic3Rs_slow
+            w=np.arange(spe2.shape[0])/spe2.shape[0]*h.Rs_high
+            ff=plt.figure(1)
+            plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            ff.show()
+            
+            maximum=np.amax([np.abs(np.real(h._Z.Value)), np.abs(np.imag(h._Z.Value))])
+            str="Output signal range is %i" %(maximum)
+            t.print_log({'type':'I', 'msg': str})
+            print(h._Z.Value.shape)
+            fs, spe3=sig.welch(h._Z.Value,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            print(h.Rs_low)
+            w=np.arange(spe3.shape[0])/spe3.shape[0]*h.Rs_low
+            fff=plt.figure(2)
+            plt.plot(w,10*np.log10(np.abs(spe3)/np.amax(np.abs(spe3))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            fff.show()
 
-        #Required to keep the figures open
     input()
 
