@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 17.01.2018 17:06
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.01.2018 15:55
 import sys
 import os
 import numpy as np
@@ -21,14 +21,17 @@ from cic3 import *
 class f2_decimator(verilog,thesdk):
     def __init__(self,*arg): 
         self.proplist = [ ' '];    #properties that can be propagated from parent
-        self.Rs_high = 8*160;                      # sampling frequency
+        self.Rs_high = 8*160e6;                      # sampling frequency
         self.Rs_low=20e6
         self.BB_bandwidth=0.45
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
+        self.export_scala=False
         self.scales=[1,1,1,1]
         self._filters = [];
         self._Z = refptr();
+        self.zeroptr=refptr()
+        self.zeroptr.Value=np.zeros((1,1))
         self._classfile=os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
         if len(arg)>=1:
             parent=arg[0]
@@ -37,21 +40,24 @@ class f2_decimator(verilog,thesdk):
         self.init()
 
     def init(self):
+        self.mode=self.determine_mode()                 
         self.def_verilog()
         self._vlogparameters=dict([ ('g_Rs_high',self.Rs_high), ('g_Rs_low',self.Rs_low), 
             ('g_scale0',self.scales[0]),  
             ('g_scale1',self.scales[1]),  
             ('g_scale2',self.scales[2]),  
-            ('g_scale3',self.scales[3])])
+            ('g_scale3',self.scales[3]),
+            ('g_mode',self.mode)
+            ])
 
     def main(self):
-        self.generate_decimator()
-        if self.model=='py':
+        if self.mode>0:
+            self.generate_decimator()
             for i in self._filters:
-                print('In main')
                 i.run()
-            out=self._filters[3]._Z.Value
-
+            out=self._filters[-1]._Z.Value
+        else:
+                out=self.iptr_A.Value
         if self.par:
             queue.put(out)
         self._Z.Value=out
@@ -66,44 +72,49 @@ class f2_decimator(verilog,thesdk):
         #Example of how to use Python models for sub-blocks, but
         #Merged verilog for the current modeule
         if self.model=='py':
-            print('Running main')
             self.main()
         else: 
           self.write_infile()
           self.run_verilog()
           self.read_outfile()
-          print('jeesjees')
 
     def generate_decimator(self,**kwargs):
        n=kwargs.get('n',np.array([6,8,40]))
-       #if Int(self.Rs_high/self.Rs_low)%2 >0:
-       #    self.print_log({'type':'F', 'msg': 'Decimaton ratio must be a multiple of 2')
-       self._filters=[cic3()]
-       self._filters[0].Rs_high=self.Rs_high
-       self._filters[0].Rs_low=self.Rs_low*8
-       self._filters[0].iptr_A=self.iptr_A
-       self._filters[0].init()
-
-       for i in range(3):
-           h=halfband()
-           h.halfband_Bandwidth=self.BB_bandwidth/(2**(2-i))
-           h.halfband_N=n[i]
-           h.Rs_high=self._filters[0].Rs_low/(2**i)
-           h.init()
-           #h.export_scala()
+       self._filters=[]
+       for i in range(4-self.mode,4):
+           if i==0:
+               h=cic3()
+               h.Rs_high=self.Rs_high
+               h.Rs_low=self.Rs_low*8
+               h.init()
+           else:
+               h=halfband()
+               h.halfband_Bandwidth=self.BB_bandwidth/(2**(2-i+1))
+               h.halfband_N=n[i-1]
+               h.Rs_high=self.Rs_low*(2**(4-i))
+               h.init()
+               if self.export_scala:
+                   h.export_scala()
            self._filters.append(h)
-           print(self._filters[i+1].Rs_low)
-       #Two ways to do it.
-       #lambda can not contain assignment
-       #map( lambda prev,next: next.iptr_A=prev._Z, list(zip(self._filters[0:-1], self._filters[1:]))) 
-       for i in range(len(self._filters)-1):
-           self._filters[i+1].iptr_A=self._filters[i]._Z
+       for i in range(len(self._filters)):
+           if i==0:
+               self._filters[i].iptr_A=self.iptr_A
+           else:
+               self._filters[i].iptr_A=self._filters[i-1]._Z
+           self._filters[i].init()
 
-       #_=[ i.init() for i in self._filters]
-       #for i in self._filters:
-       #    print('Initing %s' %(i))
-       #    i.init()
-       #    print(i.Rs_low)
+    def determine_mode(self):
+        #0=bypass, 1 decimate by 2, 2 decimate by 4, 3 decimate by 8, 4, decimate by more
+        M=self.Rs_high/self.Rs_low
+        if (M%8!=0) and (M!=4) and (M!=2) and (M!=1):
+            self.print_log({'type':'F', 'msg':"Decimatio ratio is not valid. Must be 1,2,4,8 or multiple of 8"})
+        else:
+            if M<=8:
+                mode=int(np.log2(M))
+            else:
+             mode=int(4)
+        self.print_log({'type':'I', 'msg':"Decimation ratio is set to %i corresponding to mode %i" %(M,mode)})
+        return mode
        
     def write_infile(self):
         rndpart=os.path.basename(tempfile.mkstemp()[1])
@@ -142,7 +153,8 @@ if __name__=="__main__":
     arguments=sys.argv[1:]
     t=thesdk()
     fsorig=20e6
-    highrate=16*8*fsorig
+    ##highrate=16*8*fsorig
+    highrate=4*fsorig
     bw=0.45
     siggen=f2_signal_gen()
     #fsindexes=range(1,int(highrate/fsorig))
@@ -166,22 +178,42 @@ if __name__=="__main__":
     h=f2_decimator()
     h.Rs_high=highrate
     h.Rs_low=fsorig
-    integscale=np.cumsum(np.cumsum(np.cumsum(np.ones((np.round(h.Rs_high/(8*h.Rs_low)).astype(int),1))*2**(bits-1))))[-1]
-    #integscale=2**(32-1-np.ceil(np.log2(integscale)))
+    #integscale=np.cumsum(np.cumsum(np.cumsum(np.ones((np.round(h.Rs_high/(8*h.Rs_low)).astype(int),1))*2**(bits-1))))[-1]
     integscale=128
-    print(integscale)
     h.scales=[integscale,1,1,1] 
     h.iptr_A.Value=insig.reshape((-1,1))
+    h.export_scala=False
     if len(arguments) >0:
         #h.model='\'%s\'' %(arguments[0])
         h.model='sv'
         print(h.model)
     else:
         h.model='py'
+        print(h.model)
     h.init()
     h.run() 
 
-    if h.model=='py':
+    if h.mode==0 and h.model=='py':
+            fs, spe2=sig.welch(h.iptr_A.Value,fs=h.Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            w=np.arange(spe2.shape[0])/spe2.shape[0]*h.Rs_high
+            ff=plt.figure(0)
+            plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            ff.show()
+
+            maximum=np.amax([np.abs(np.real(h._Z.Value)), np.abs(np.imag(h._Z.Value))])
+            str="Output signal range is %i" %(maximum)
+            t.print_log({'type':'I', 'msg': str})
+            fs, spe3=sig.welch(h._Z.Value,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            print(h.Rs_low)
+            w=np.arange(spe3.shape[0])/spe3.shape[0]*h.Rs_low
+            fff=plt.figure(1)
+            plt.plot(w,10*np.log10(np.abs(spe3)/np.amax(np.abs(spe3))))
+            plt.ylim((-80,3))
+            plt.grid(True)
+            fff.show()
+    elif h.mode>0 and h.model=='py':
         for filtno in range(len(h._filters)):
             impulse=np.r_['0', h._filters[filtno].H, np.zeros((1024-h._filters[filtno].H.shape[0],1))]
             w=np.arange(1024)/1024*h._filters[filtno].Rs_high
@@ -193,8 +225,6 @@ if __name__=="__main__":
             f.show()
 
             fs, spe2=sig.welch(h._filters[filtno].iptr_A.Value,fs=h._filters[filtno].Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
-            #w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].cic3Rs_slow
-            print(h._filters[filtno].Rs_high)
             w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].Rs_high
             ff=plt.figure(3*filtno+2)
             plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
