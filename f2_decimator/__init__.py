@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.01.2018 20:00
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 19.01.2018 13:23
 import sys
 import os
 import numpy as np
@@ -60,6 +60,9 @@ class f2_decimator(verilog,thesdk):
                 out=self.iptr_A.Value
         if self.par:
             queue.put(out)
+        maximum=np.amax([np.abs(np.real(out)), np.abs(np.imag(out))])
+        str="Output signal range is %i" %(maximum)
+        self.print_log({'type':'I', 'msg': str})
         self._Z.Value=out
 
     def run(self,*arg):
@@ -138,11 +141,15 @@ class f2_decimator(verilog,thesdk):
         out = np.loadtxt(fid,dtype=complex)
         #Of course it does not work symmetrically with savetxt
         out=(out[:,0]+1j*out[:,1]).reshape(-1,1) 
+        maximum=np.amax([np.abs(np.real(out)), np.abs(np.imag(out))])
+        str="Output signal range is %i" %(maximum)
+        self.print_log({'type':'I', 'msg': str})
+        self._Z.Value=out
         fid.close()
         if self.par:
           queue.put(out)
         self._Z.Value=out
-        os.remove(self._outfile)
+        #os.remove(self._outfile)
 
 if __name__=="__main__":
     import sys
@@ -257,9 +264,6 @@ if __name__=="__main__":
             plt.grid(True)
             ff.show()
             
-            maximum=np.amax([np.abs(np.real(h._Z.Value)), np.abs(np.imag(h._Z.Value))])
-            str="Output signal range is %i" %(maximum)
-            t.print_log({'type':'I', 'msg': str})
             print(h._Z.Value.shape)
             fs, spe3=sig.welch(h._Z.Value,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             print(h.Rs_low)
