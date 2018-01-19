@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.01.2018 15:55
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.01.2018 20:00
 import sys
 import os
 import numpy as np
@@ -153,8 +153,8 @@ if __name__=="__main__":
     arguments=sys.argv[1:]
     t=thesdk()
     fsorig=20e6
-    ##highrate=16*8*fsorig
-    highrate=4*fsorig
+    highrate=16*8*fsorig
+    #highrate=4*fsorig
     bw=0.45
     siggen=f2_signal_gen()
     #fsindexes=range(1,int(highrate/fsorig))
