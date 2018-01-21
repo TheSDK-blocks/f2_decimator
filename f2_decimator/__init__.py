@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 19.01.2018 13:23
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 20.01.2018 16:54
 import sys
 import os
 import numpy as np
@@ -57,9 +57,9 @@ class f2_decimator(verilog,thesdk):
                 i.run()
             out=self._filters[-1]._Z.Value
         else:
-                out=self.iptr_A.Value
+            out=self.iptr_A.Value
         if self.par:
-            queue.put(out)
+            self.queue.put(out)
         maximum=np.amax([np.abs(np.real(out)), np.abs(np.imag(out))])
         str="Output signal range is %i" %(maximum)
         self.print_log({'type':'I', 'msg': str})
@@ -68,7 +68,7 @@ class f2_decimator(verilog,thesdk):
     def run(self,*arg):
         if len(arg)>0:
             self.par=True      #flag for parallel processing
-            queue=arg[0]       #multiprocessing.Queue as the first argument
+            self.queue=arg[0]       #multiprocessing.Queue as the first argument
         else:
             self.par=False
 
@@ -147,9 +147,9 @@ class f2_decimator(verilog,thesdk):
         self._Z.Value=out
         fid.close()
         if self.par:
-          queue.put(out)
+          self.queue.put(out)
         self._Z.Value=out
-        #os.remove(self._outfile)
+        os.remove(self._outfile)
 
 if __name__=="__main__":
     import sys
