@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 20.01.2018 16:54
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 05.03.2018 14:19
 import sys
 import os
 import numpy as np
@@ -41,6 +41,7 @@ class f2_decimator(verilog,thesdk):
 
     def init(self):
         self.mode=self.determine_mode()                 
+        self._vlogmodulefiles=list(["clkdiv_n_2_4_8.sv"])                 
         self.def_verilog()
         self._vlogparameters=dict([ ('g_Rs_high',self.Rs_high), ('g_Rs_low',self.Rs_low), 
             ('g_scale0',self.scales[0]),  
