@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 05.03.2018 14:19
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 15.08.2018 17:32
 import sys
 import os
 import numpy as np
@@ -19,6 +19,10 @@ from cic3 import *
 
 #Simple buffer template
 class f2_decimator(verilog,thesdk):
+    @property
+    def _classfile(self):
+        return os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
+
     def __init__(self,*arg): 
         self.proplist = [ ' '];    #properties that can be propagated from parent
         self.Rs_high = 8*160e6;                      # sampling frequency
@@ -32,7 +36,6 @@ class f2_decimator(verilog,thesdk):
         self._Z = refptr();
         self.zeroptr=refptr()
         self.zeroptr.Value=np.zeros((1,1))
-        self._classfile=os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
         if len(arg)>=1:
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
