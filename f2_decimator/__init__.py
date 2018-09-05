@@ -1,5 +1,5 @@
 # f2_decimator class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 15.08.2018 17:32
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 03.09.2018 19:28
 import sys
 import os
 import numpy as np
@@ -32,6 +32,7 @@ class f2_decimator(verilog,thesdk):
         self.model='py';             #can be set externally, but is not propagated
         self.export_scala=False
         self.scales=[1,1,1,1]
+        self.cic3shift=0
         self._filters = [];
         self._Z = refptr();
         self.zeroptr=refptr()
@@ -51,14 +52,16 @@ class f2_decimator(verilog,thesdk):
             ('g_scale1',self.scales[1]),  
             ('g_scale2',self.scales[2]),  
             ('g_scale3',self.scales[3]),
+            ('g_cic3shift',self.cic3shift),
             ('g_mode',self.mode)
             ])
 
     def main(self):
         if self.mode>0:
             self.generate_decimator()
-            for i in self._filters:
-                i.run()
+            for i in range(len(self._filters)):
+                self._filters[i].run()
+                self._filters[i]._Z.Value=(self._filters[i]._Z.Value*self.scales[i]).reshape(-1,1)
             out=self._filters[-1]._Z.Value
         else:
             out=self.iptr_A.Value
@@ -93,6 +96,8 @@ class f2_decimator(verilog,thesdk):
                h=cic3()
                h.Rs_high=self.Rs_high
                h.Rs_low=self.Rs_low*8
+               h.integscale=self.scales[0]
+               h.cic3shift=self.cic3shift
                h.init()
            else:
                h=halfband()
@@ -103,6 +108,8 @@ class f2_decimator(verilog,thesdk):
                if self.export_scala:
                    h.export_scala()
            self._filters.append(h)
+       #Here, in order to model multiplier, we would need to 
+       # Create multiplier instance with pointers
        for i in range(len(self._filters)):
            if i==0:
                self._filters[i].iptr_A=self.iptr_A
@@ -165,14 +172,11 @@ if __name__=="__main__":
     t=thesdk()
     fsorig=20e6
     highrate=16*8*fsorig
-    #highrate=4*fsorig
     bw=0.45
     siggen=f2_signal_gen()
-    #fsindexes=range(1,int(highrate/fsorig))
     fsindexes=range(1,3)
     print(list(fsindexes))
     freqlist=[1.0e6, 0.45*fsorig]
-    #_=[freqlist.extend([i*fsorig-bw*fsorig, i*fsorig+bw*fsorig]) for i in list(fsindexes) ] 
     _=[freqlist.extend([i*fsorig-bw*fsorig, i*fsorig+bw*fsorig]) for i in list(fsindexes) ] 
     print(freqlist)
     siggen.Rs=highrate
@@ -191,6 +195,7 @@ if __name__=="__main__":
     h.Rs_low=fsorig
     #integscale=np.cumsum(np.cumsum(np.cumsum(np.ones((np.round(h.Rs_high/(8*h.Rs_low)).astype(int),1))*2**(bits-1))))[-1]
     integscale=128
+    cic3shift=0
     h.scales=[integscale,1,1,1] 
     h.iptr_A.Value=insig.reshape((-1,1))
     h.export_scala=False
