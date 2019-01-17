@@ -28,15 +28,15 @@ class f2_decimator(verilog,thesdk):
         self.Rs_high = 8*160e6;                      # sampling frequency
         self.Rs_low=20e6
         self.BB_bandwidth=0.45
-        self.iptr_A = refptr();
+        self.iptr_A = IO();
         self.model='py';             #can be set externally, but is not propagated
         self.export_scala=False
         self.scales=[1,1,1,1]
         self.cic3shift=0
         self._filters = [];
-        self._Z = refptr();
-        self.zeroptr=refptr()
-        self.zeroptr.Value=np.zeros((1,1))
+        self._Z = IO();
+        self.zeroptr=IO()
+        self.zeroptr.Data=np.zeros((1,1))
         if len(arg)>=1:
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
@@ -61,16 +61,16 @@ class f2_decimator(verilog,thesdk):
             self.generate_decimator()
             for i in range(len(self._filters)):
                 self._filters[i].run()
-                self._filters[i]._Z.Value=(self._filters[i]._Z.Value*self.scales[i]).reshape(-1,1)
-            out=self._filters[-1]._Z.Value
+                self._filters[i]._Z.Data=(self._filters[i]._Z.Data*self.scales[i]).reshape(-1,1)
+            out=self._filters[-1]._Z.Data
         else:
-            out=self.iptr_A.Value
+            out=self.iptr_A.Data
         if self.par:
             self.queue.put(out)
         maximum=np.amax([np.abs(np.real(out)), np.abs(np.imag(out))])
         str="Output signal range is %i" %(maximum)
-        self.print_log({'type':'I', 'msg': str})
-        self._Z.Value=out
+        self.print_log(type='I', msg=str)
+        self._Z.Data=out
 
     def run(self,*arg):
         if len(arg)>0:
@@ -121,13 +121,13 @@ class f2_decimator(verilog,thesdk):
         #0=bypass, 1 decimate by 2, 2 decimate by 4, 3 decimate by 8, 4, decimate by more
         M=self.Rs_high/self.Rs_low
         if (M%8!=0) and (M!=4) and (M!=2) and (M!=1):
-            self.print_log({'type':'F', 'msg':"Decimatio ratio is not valid. Must be 1,2,4,8 or multiple of 8"})
+            self.print_log(type='F', msg="Decimatio ratio is not valid. Must be 1,2,4,8 or multiple of 8")
         else:
             if M<=8:
                 mode=int(np.log2(M))
             else:
              mode=int(4)
-        self.print_log({'type':'I', 'msg':"Decimation ratio is set to %i corresponding to mode %i" %(M,mode)})
+        self.print_log(type='I', msg="Decimation ratio is set to %i corresponding to mode %i" %(M,mode))
         return mode
        
     def write_infile(self):
@@ -144,7 +144,7 @@ class f2_decimator(verilog,thesdk):
         except:
           pass
         fid=open(self._infile,'wb')
-        np.savetxt(fid,self.iptr_A.Value.reshape(-1,1).view(float),fmt='%i', delimiter='\t')
+        np.savetxt(fid,self.iptr_A.Data.reshape(-1,1).view(float),fmt='%i', delimiter='\t')
         fid.close()
 
     def read_outfile(self):
@@ -154,12 +154,12 @@ class f2_decimator(verilog,thesdk):
         out=(out[:,0]+1j*out[:,1]).reshape(-1,1) 
         maximum=np.amax([np.abs(np.real(out)), np.abs(np.imag(out))])
         str="Output signal range is %i" %(maximum)
-        self.print_log({'type':'I', 'msg': str})
-        self._Z.Value=out
+        self.print_log(type='I', msg=str)
+        self._Z.Data=out
         fid.close()
         if self.par:
           self.queue.put(out)
-        self._Z.Value=out
+        self._Z.Data=out
         os.remove(self._outfile)
 
 if __name__=="__main__":
@@ -186,7 +186,7 @@ if __name__=="__main__":
     siggen.init()
     #Mimic ADC This is very ideal to verify frequencyuresponses
     bits=10
-    insig=siggen._Z.Value[0,:,0].reshape(-1,1)
+    insig=siggen._Z.Data[0,:,0].reshape(-1,1)
     insig=np.round(insig/np.amax([np.abs(np.real(insig)), np.abs(np.imag(insig))])*(2**(bits-1)-1))
     str="Input signal range is %i" %((2**(bits-1)-1))
     t.print_log({'type':'I', 'msg': str})
@@ -197,7 +197,7 @@ if __name__=="__main__":
     integscale=128
     cic3shift=0
     h.scales=[integscale,1,1,1] 
-    h.iptr_A.Value=insig.reshape((-1,1))
+    h.iptr_A.Data=insig.reshape((-1,1))
     h.export_scala=False
     if len(arguments) >0:
         #h.model='\'%s\'' %(arguments[0])
@@ -210,7 +210,7 @@ if __name__=="__main__":
     h.run() 
 
     if h.mode==0 and h.model=='py':
-            fs, spe2=sig.welch(h.iptr_A.Value,fs=h.Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            fs, spe2=sig.welch(h.iptr_A.Data,fs=h.Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             w=np.arange(spe2.shape[0])/spe2.shape[0]*h.Rs_high
             ff=plt.figure(0)
             plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
@@ -218,10 +218,10 @@ if __name__=="__main__":
             plt.grid(True)
             ff.show()
 
-            maximum=np.amax([np.abs(np.real(h._Z.Value)), np.abs(np.imag(h._Z.Value))])
+            maximum=np.amax([np.abs(np.real(h._Z.Data)), np.abs(np.imag(h._Z.Data))])
             str="Output signal range is %i" %(maximum)
             t.print_log({'type':'I', 'msg': str})
-            fs, spe3=sig.welch(h._Z.Value,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            fs, spe3=sig.welch(h._Z.Data,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             print(h.Rs_low)
             w=np.arange(spe3.shape[0])/spe3.shape[0]*h.Rs_low
             fff=plt.figure(1)
@@ -240,7 +240,7 @@ if __name__=="__main__":
             plt.grid(True)
             f.show()
 
-            fs, spe2=sig.welch(h._filters[filtno].iptr_A.Value,fs=h._filters[filtno].Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            fs, spe2=sig.welch(h._filters[filtno].iptr_A.Data,fs=h._filters[filtno].Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].Rs_high
             ff=plt.figure(3*filtno+2)
             plt.plot(w,10*np.log10(np.abs(spe2)/np.amax(np.abs(spe2))))
@@ -248,11 +248,11 @@ if __name__=="__main__":
             plt.grid(True)
             ff.show()
             
-            #spe3=np.fft.fft(h._Z.Value,axis=0)
-            maximum=np.amax([np.abs(np.real(h._filters[filtno]._Z.Value)), np.abs(np.imag(h._filters[filtno]._Z.Value))])
+            #spe3=np.fft.fft(h._Z.Data,axis=0)
+            maximum=np.amax([np.abs(np.real(h._filters[filtno]._Z.Data)), np.abs(np.imag(h._filters[filtno]._Z.Data))])
             str="Output signal range is %i" %(maximum)
             t.print_log({'type':'I', 'msg': str})
-            fs, spe3=sig.welch(h._filters[filtno]._Z.Value,fs=h._filters[filtno].Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            fs, spe3=sig.welch(h._filters[filtno]._Z.Data,fs=h._filters[filtno].Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             #w=np.arange(spe3.shape[0])/spe3.shape[0]*h._filters[filtno].cic3Rs_slow
             print(h._filters[filtno].Rs_low)
             w=np.arange(spe3.shape[0])/spe3.shape[0]*h._filters[filtno].Rs_low
@@ -264,7 +264,7 @@ if __name__=="__main__":
 
             #Required to keep the figures open
     else:
-            fs, spe2=sig.welch(h.iptr_A.Value,fs=h.Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            fs, spe2=sig.welch(h.iptr_A.Data,fs=h.Rs_high,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             #w=np.arange(spe2.shape[0])/spe2.shape[0]*h._filters[filtno].cic3Rs_slow
             w=np.arange(spe2.shape[0])/spe2.shape[0]*h.Rs_high
             ff=plt.figure(1)
@@ -273,8 +273,8 @@ if __name__=="__main__":
             plt.grid(True)
             ff.show()
             
-            print(h._Z.Value.shape)
-            fs, spe3=sig.welch(h._Z.Value,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
+            print(h._Z.Data.shape)
+            fs, spe3=sig.welch(h._Z.Data,fs=h.Rs_low,nperseg=1024,return_onesided=False,scaling='spectrum',axis=0)
             print(h.Rs_low)
             w=np.arange(spe3.shape[0])/spe3.shape[0]*h.Rs_low
             fff=plt.figure(2)
